@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 # Define WrappedGPT class
 class WrappedGPT:
     """
@@ -16,7 +17,7 @@ class WrappedGPT:
         self.scaler_row = torch.zeros((self.columns), device=self.dev)
         self.nsamples = 0
 
-        self.layer_id = layer_id 
+        self.layer_id = layer_id
         self.layer_name = layer_name
 
     def add_batch(self, inp, out):
@@ -27,13 +28,13 @@ class WrappedGPT:
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
-        
-        self.scaler_row *= self.nsamples / (self.nsamples+tmp)
+
+        self.scaler_row *= self.nsamples / (self.nsamples + tmp)
         self.nsamples += tmp
 
         inp = inp.type(torch.float32)
-        self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2  / self.nsamples
-        
+        self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2 / self.nsamples
+
     def free(self):
         self.scaler_row = None
         torch.cuda.empty_cache()
@@ -44,6 +45,7 @@ class BiasGPT:
     """
     This class wraps a GPT layer for specific operations.
     """
+
     def __init__(self, layer, metric):
         self.layer = layer
         self.dev = self.layer.weight.device
@@ -55,7 +57,7 @@ class BiasGPT:
         self.baseline_inp = torch.zeros((self.in_dim), device=self.dev)
         if self.type == "WIFN":
             self.scaler_inp = torch.zeros((self.in_dim), device=self.dev)
-        else:   
+        else:
             self.fluc_inp = torch.zeros((self.in_dim), device=self.dev)
 
     def add_batch(self, inp, out):
@@ -65,7 +67,7 @@ class BiasGPT:
         if isinstance(self.layer, nn.Linear):
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()   # (dim, seqlen)
+            inp = inp.t()  # (dim, seqlen)
 
         old_baseline_inp = self.baseline_inp
         self.baseline_inp *= self.nsamples / (self.nsamples + batch_size)
@@ -73,21 +75,28 @@ class BiasGPT:
         if self.type == "WIFN":
             inp = inp.type(torch.float32)
             self.scaler_inp *= self.nsamples / (self.nsamples + batch_size)
-            self.scaler_inp += torch.norm(inp, p=2, dim=1) ** 2  / (self.nsamples + batch_size)
+            self.scaler_inp += torch.norm(inp, p=2, dim=1) ** 2 / (
+                self.nsamples + batch_size
+            )
         else:
             if self.nsamples == 0:
                 self.fluc_inp = 0
             else:
                 self.fluc_inp *= (self.nsamples - 1) / (self.nsamples + batch_size - 1)
-                self.fluc_inp += torch.sum((inp - self.baseline_inp.unsqueeze(1)) * (inp - old_baseline_inp.unsqueeze(1)), dim=1) / (self.nsamples + batch_size)   # a²+b²+c²...没开根号
+                self.fluc_inp += torch.sum(
+                    (inp - self.baseline_inp.unsqueeze(1))
+                    * (inp - old_baseline_inp.unsqueeze(1)),
+                    dim=1,
+                ) / (
+                    self.nsamples + batch_size
+                )  # a²+b²+c²...没开根号
 
         self.nsamples += batch_size
 
-        
     def free(self):
         self.baseline_inp = None
-        if hasattr(self, 'fluc_inp'):
+        if hasattr(self, "fluc_inp"):
             self.fluc_inp = None
-        if hasattr(self, 'scaler_inp'):
+        if hasattr(self, "scaler_inp"):
             self.scaler_inp = None
-        torch.cuda.empty_cache()  
+        torch.cuda.empty_cache()
